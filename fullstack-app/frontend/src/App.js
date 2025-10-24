@@ -1,47 +1,103 @@
-import React, { useState, useEffect } from 'react';
-import './App.css';
+import React from 'react';
+import { ThemeProvider, CssBaseline, Box, Typography, Button } from '@mui/material';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { theme } from './styles/theme';
+import MainLayout from './components/layout/MainLayout';
+import LoginForm from './components/auth/LoginForm';
+import Dashboard from './pages/Dashboard';
+import { useAuth } from './contexts/AuthContext';
+import GlassCard from './components/ui/GlassCard';
+import { neonText } from './styles/theme';
 
-function App() {
-  const [backendStatus, setBackendStatus] = useState('Checking...');
-  const [loading, setLoading] = useState(true);
+// Protected Route component
+const ProtectedRoute = ({ children }) => {
+  const { user } = useAuth();
+  return user ? children : <Navigate to="/login" />;
+};
 
-  useEffect(() => {
-    // Function to check backend connection
-    const checkBackend = async () => {
-      try {
-        const response = await fetch('http://localhost:8000/api/health');
-        const data = await response.json();
-        if (data.status === 'ok') {
-          setBackendStatus('✅ Connected to Backend!');
-        } else {
-          setBackendStatus('⚠️ Backend is not responding correctly');
-        }
-      } catch (error) {
-        setBackendStatus('❌ Could not connect to Backend');
-        console.error('Error connecting to backend:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+// Public Route component
+const PublicRoute = ({ children }) => {
+  const { user } = useAuth();
+  return !user ? children : <Navigate to="/dashboard" />;
+};
 
-    checkBackend();
-  }, []);
+// Home component
+const Home = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>React + FastAPI Full Stack App</h1>
-        <div className="connection-status">
-          <h3>Backend Status: {backendStatus}</h3>
-          {loading && <p>Testing connection to backend...</p>}
-        </div>
-        <p className="instructions">
-          Frontend is running on port 3000
-          <br />
-          Backend API is running on port 8000
-        </p>
-      </header>
-    </div>
+    <MainLayout>
+      <Box sx={{ textAlign: 'center', mb: 6 }}>
+        <Typography variant="h1" gutterBottom>
+          Welcome to BCPlugHub
+        </Typography>
+        <Typography variant="h5" color="textSecondary" gutterBottom>
+          Your exclusive platform for BC function invites
+        </Typography>
+      </Box>
+
+      <Box sx={{ display: 'grid', gap: 4, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, maxWidth: '1200px', mx: 'auto' }}>
+        <GlassCard>
+          <Typography variant="h4" sx={{ mb: 2, ...neonText }}>Create Events</Typography>
+          <Typography sx={{ mb: 3 }}>
+            Manage your BC functions undercover with AI-generated aliases.
+          </Typography>
+          <Button 
+            variant="contained" 
+            color="primary"
+            onClick={() => navigate(user ? '/dashboard' : '/login')}
+          >
+            {user ? 'Go to Dashboard' : 'Get Started'}
+          </Button>
+        </GlassCard>
+
+        <GlassCard>
+          <Typography variant="h4" sx={{ mb: 2, ...neonText }}>Join Functions Tonight</Typography>
+          <Typography sx={{ mb: 3 }}>
+            Receive and accept invites with your unique BC alias. Keep your identity private. Let's share the BC community.
+          </Typography>
+          <Button 
+            variant="outlined" 
+            color="primary" 
+            sx={{ borderWidth: '2px' }}
+            onClick={() => navigate(user ? '/dashboard' : '/login')}
+          >
+            {user ? 'View Invites' : 'Login to Continue'}
+          </Button>
+        </GlassCard>
+      </Box>
+    </MainLayout>
+  );
+};
+
+function App() {
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route 
+          path="/login" 
+          element={
+            <PublicRoute>
+              <MainLayout>
+                <LoginForm />
+              </MainLayout>
+            </PublicRoute>
+          } 
+        />
+        <Route 
+          path="/dashboard" 
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } 
+        />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </ThemeProvider>
   );
 }
 
