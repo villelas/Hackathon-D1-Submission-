@@ -15,9 +15,9 @@ import {
   Card,
   CardContent,
   LinearProgress,
-  AppBar,
-  Toolbar,
-  CircularProgress
+  CircularProgress,
+  Fade,
+  Tooltip
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -31,6 +31,8 @@ import StarIcon from '@mui/icons-material/Star';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SyncIcon from '@mui/icons-material/Sync';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 
 const API_URL = 'http://127.0.0.1:8000/api';
 
@@ -125,7 +127,6 @@ const ProfilePage = () => {
     setError('');
     
     try {
-      // First save the handle
       await axios.put(`${API_URL}/users/${user.user_id}/instagram`, {
         instagram_handle: instagramHandle,
         instagram_followers: []
@@ -133,12 +134,11 @@ const ProfilePage = () => {
       
       setSuccess('Syncing followers... This may take a minute.');
       
-      // Then scrape followers
       const response = await axios.post(
         `${API_URL}/users/${user.user_id}/instagram/scrape`,
         { 
           instagram_handle: instagramHandle,
-          max_followers: 100  // Limit for safety
+          max_followers: 100
         }
       );
       
@@ -151,13 +151,11 @@ const ProfilePage = () => {
       setSuccess(`✅ Synced ${response.data.followers_count} followers! (${response.data.total_followers} total)`);
       setTimeout(() => setSuccess(''), 5000);
       
-      // Refresh profile data
       fetchUserProfile();
     } catch (err) {
       const errorMsg = err.response?.data?.detail || 'Failed to sync Instagram';
       setError(errorMsg);
       
-      // If rate limited, show helpful message
       if (err.response?.status === 429) {
         setError('Instagram rate limit hit. Please try again in 10 minutes. ⏰');
       }
@@ -197,123 +195,403 @@ const ProfilePage = () => {
   };
 
   const getRatingColor = (rating) => {
-    if (rating >= 8) return '#4caf50';
-    if (rating >= 4) return '#ff9800';
-    return '#f44336';
+    if (rating >= 8) return '#00ff88';
+    if (rating >= 4) return '#ffd93d';
+    return '#ff6b9d';
+  };
+
+  const getRatingLabel = (rating) => {
+    if (rating >= 9) return 'Legendary';
+    if (rating >= 8) return 'Elite';
+    if (rating >= 6) return 'Rising Star';
+    if (rating >= 4) return 'Building Rep';
+    return 'New Host';
   };
 
   return (
-    <Box sx={{ flexGrow: 1, bgcolor: 'grey.50', minHeight: '100vh' }}>
-      {/* Top Bar */}
-      <AppBar position="static" elevation={1}>
-        <Toolbar>
-          <IconButton
-            edge="start"
-            color="inherit"
-            onClick={() => navigate('/dashboard')}
-            sx={{ mr: 2 }}
-          >
-            <ArrowBackIcon />
-          </IconButton>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Profile
-          </Typography>
-        </Toolbar>
-      </AppBar>
+    <Box sx={{ 
+      minHeight: '100vh',
+      background: '#000000',
+      position: 'relative',
+      overflow: 'hidden'
+    }}>
+      {/* Animated background elements */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: '10%',
+          right: '10%',
+          width: '400px',
+          height: '400px',
+          background: 'radial-gradient(circle, rgba(0, 255, 136, 0.15) 0%, transparent 70%)',
+          borderRadius: '50%',
+          filter: 'blur(80px)',
+          animation: 'float 8s ease-in-out infinite',
+          '@keyframes float': {
+            '0%, 100%': { transform: 'translateY(0px)' },
+            '50%': { transform: 'translateY(-40px)' }
+          }
+        }}
+      />
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: '5%',
+          left: '5%',
+          width: '300px',
+          height: '300px',
+          background: 'radial-gradient(circle, rgba(255, 217, 61, 0.1) 0%, transparent 70%)',
+          borderRadius: '50%',
+          filter: 'blur(80px)',
+          animation: 'float 10s ease-in-out infinite',
+        }}
+      />
 
-      <Container maxWidth="md" sx={{ py: 4 }}>
-        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {/* Back Button */}
+      <Box sx={{ position: 'absolute', top: 20, left: 20, zIndex: 10 }}>
+        <IconButton
+          onClick={() => navigate('/dashboard')}
+          sx={{
+            color: 'white',
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(0, 255, 136, 0.3)',
+            '&:hover': {
+              background: 'rgba(0, 255, 136, 0.1)',
+              border: '1px solid rgba(0, 255, 136, 0.5)',
+            }
+          }}
+        >
+          <ArrowBackIcon />
+        </IconButton>
+      </Box>
+
+      <Container maxWidth="lg" sx={{ py: 8, position: 'relative', zIndex: 1 }}>
+        {/* Alerts */}
+        {success && (
+          <Fade in>
+            <Alert 
+              severity="success" 
+              sx={{ 
+                mb: 3,
+                background: 'rgba(0, 255, 136, 0.1)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(0, 255, 136, 0.3)',
+                color: '#00ff88'
+              }}
+            >
+              {success}
+            </Alert>
+          </Fade>
+        )}
+        {error && (
+          <Fade in>
+            <Alert 
+              severity="error" 
+              sx={{ 
+                mb: 3,
+                background: 'rgba(255, 107, 157, 0.1)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255, 107, 157, 0.3)',
+                color: '#ff6b9d'
+              }}
+            >
+              {error}
+            </Alert>
+          </Fade>
+        )}
 
         {/* Header Card with Avatar & Alias */}
-        <Paper elevation={3} sx={{ p: 4, mb: 3, textAlign: 'center' }}>
+        <Box
+          sx={{
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(0, 255, 136, 0.2)',
+            borderRadius: 4,
+            p: 5,
+            mb: 4,
+            textAlign: 'center',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+            position: 'relative',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Glow effect behind avatar */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '20%',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '200px',
+              height: '200px',
+              background: 'radial-gradient(circle, rgba(0, 255, 136, 0.3) 0%, transparent 70%)',
+              borderRadius: '50%',
+              filter: 'blur(40px)',
+              zIndex: 0
+            }}
+          />
+
           <Avatar 
             sx={{ 
-              width: 120, 
-              height: 120, 
-              margin: '0 auto 16px',
-              fontSize: '3rem',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              width: 140, 
+              height: 140, 
+              margin: '0 auto 20px',
+              fontSize: '3.5rem',
+              background: 'linear-gradient(135deg, #00ff88 0%, #00d4aa 100%)',
+              border: '4px solid rgba(0, 255, 136, 0.3)',
+              boxShadow: '0 0 40px rgba(0, 255, 136, 0.4)',
+              position: 'relative',
+              zIndex: 1
             }}
           >
             {user?.name?.charAt(0)}
           </Avatar>
           
-          <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
+          <Typography 
+            variant="h3" 
+            sx={{ 
+              fontWeight: 900, 
+              mb: 1,
+              color: '#00ff88',
+              textShadow: '0 0 30px rgba(0, 255, 136, 0.5)',
+              position: 'relative',
+              zIndex: 1
+            }}
+          >
             {user?.ai_generated_alias || 'Loading...'}
           </Typography>
           
-          <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+          <Typography variant="h5" sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 1, fontWeight: 600 }}>
             {user?.name}
           </Typography>
           
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
             {user?.bc_email}
           </Typography>
-        </Paper>
 
-        {/* Stats Cards */}
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={4}>
-            <Card>
-              <CardContent sx={{ textAlign: 'center' }}>
-                <StarIcon sx={{ fontSize: 40, color: getRatingColor(userStats.personal_rating) }} />
-                <Typography variant="h5" sx={{ fontWeight: 'bold', color: getRatingColor(userStats.personal_rating) }}>
-                  {userStats.personal_rating.toFixed(1)}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Host Rating
-                </Typography>
-              </CardContent>
-            </Card>
+          {/* Rating Badge */}
+          <Box sx={{ mt: 3 }}>
+            <Chip
+              icon={<LocalFireDepartmentIcon />}
+              label={getRatingLabel(userStats.personal_rating)}
+              sx={{
+                background: `linear-gradient(135deg, ${getRatingColor(userStats.personal_rating)} 0%, ${getRatingColor(userStats.personal_rating)}cc 100%)`,
+                color: '#000',
+                fontWeight: 800,
+                fontSize: '1rem',
+                px: 2,
+                py: 2.5,
+                height: 'auto',
+                border: `2px solid ${getRatingColor(userStats.personal_rating)}`,
+                boxShadow: `0 0 30px ${getRatingColor(userStats.personal_rating)}40`
+              }}
+            />
+          </Box>
+        </Box>
+
+        {/* Stats Grid - Redesigned */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid item xs={12} md={4}>
+            <Box
+              sx={{
+                background: 'rgba(0, 0, 0, 0.6)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(0, 255, 136, 0.2)',
+                borderRadius: 3,
+                p: 4,
+                textAlign: 'center',
+                position: 'relative',
+                overflow: 'hidden',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-8px)',
+                  border: '1px solid rgba(0, 255, 136, 0.5)',
+                  boxShadow: `0 12px 40px ${getRatingColor(userStats.personal_rating)}30`
+                }
+              }}
+            >
+              <StarIcon sx={{ 
+                fontSize: 48, 
+                color: getRatingColor(userStats.personal_rating),
+                filter: `drop-shadow(0 0 20px ${getRatingColor(userStats.personal_rating)})`
+              }} />
+              <Typography 
+                variant="h3" 
+                sx={{ 
+                  fontWeight: 900, 
+                  color: getRatingColor(userStats.personal_rating),
+                  mt: 2,
+                  textShadow: `0 0 20px ${getRatingColor(userStats.personal_rating)}80`
+                }}
+              >
+                {userStats.personal_rating.toFixed(1)}
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', mt: 1, fontWeight: 600 }}>
+                Host Rating
+              </Typography>
+              <Box sx={{ mt: 2 }}>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={(userStats.personal_rating / 10) * 100}
+                  sx={{
+                    height: 8,
+                    borderRadius: 4,
+                    bgcolor: 'rgba(255, 255, 255, 0.1)',
+                    '& .MuiLinearProgress-bar': {
+                      bgcolor: getRatingColor(userStats.personal_rating),
+                      boxShadow: `0 0 10px ${getRatingColor(userStats.personal_rating)}`
+                    }
+                  }}
+                />
+              </Box>
+            </Box>
           </Grid>
-          <Grid item xs={4}>
-            <Card>
-              <CardContent sx={{ textAlign: 'center' }}>
-                <EmojiEventsIcon sx={{ fontSize: 40, color: 'primary.main' }} />
-                <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-                  {userStats.past_functions_count}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Functions Hosted
-                </Typography>
-              </CardContent>
-            </Card>
+
+          <Grid item xs={12} md={4}>
+            <Box
+              sx={{
+                background: 'rgba(0, 0, 0, 0.6)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 217, 61, 0.2)',
+                borderRadius: 3,
+                p: 4,
+                textAlign: 'center',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-8px)',
+                  border: '1px solid rgba(255, 217, 61, 0.5)',
+                  boxShadow: '0 12px 40px rgba(255, 217, 61, 0.3)'
+                }
+              }}
+            >
+              <EmojiEventsIcon sx={{ 
+                fontSize: 48, 
+                color: '#ffd93d',
+                filter: 'drop-shadow(0 0 20px rgba(255, 217, 61, 0.6))'
+              }} />
+              <Typography 
+                variant="h3" 
+                sx={{ 
+                  fontWeight: 900, 
+                  color: '#ffd93d',
+                  mt: 2,
+                  textShadow: '0 0 20px rgba(255, 217, 61, 0.5)'
+                }}
+              >
+                {userStats.past_functions_count}
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', mt: 1, fontWeight: 600 }}>
+                Functions Hosted
+              </Typography>
+              {userStats.current_functions_count > 0 && (
+                <Chip 
+                  label={`${userStats.current_functions_count} Active`}
+                  size="small"
+                  sx={{ 
+                    mt: 2,
+                    background: 'rgba(255, 217, 61, 0.2)',
+                    color: '#ffd93d',
+                    border: '1px solid rgba(255, 217, 61, 0.3)',
+                    fontWeight: 700
+                  }}
+                />
+              )}
+            </Box>
           </Grid>
-          <Grid item xs={4}>
-            <Card>
-              <CardContent sx={{ textAlign: 'center' }}>
-                <InstagramIcon sx={{ fontSize: 40, color: '#E1306C' }} />
-                <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-                  {userStats.instagram_follower_count}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  IG Followers
-                </Typography>
-              </CardContent>
-            </Card>
+
+          <Grid item xs={12} md={4}>
+            <Box
+              sx={{
+                background: 'rgba(0, 0, 0, 0.6)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(225, 48, 108, 0.2)',
+                borderRadius: 3,
+                p: 4,
+                textAlign: 'center',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-8px)',
+                  border: '1px solid rgba(225, 48, 108, 0.5)',
+                  boxShadow: '0 12px 40px rgba(225, 48, 108, 0.3)'
+                }
+              }}
+            >
+              <InstagramIcon sx={{ 
+                fontSize: 48, 
+                color: '#E1306C',
+                filter: 'drop-shadow(0 0 20px rgba(225, 48, 108, 0.6))'
+              }} />
+              <Typography 
+                variant="h3" 
+                sx={{ 
+                  fontWeight: 900, 
+                  color: '#E1306C',
+                  mt: 2,
+                  textShadow: '0 0 20px rgba(225, 48, 108, 0.5)'
+                }}
+              >
+                {userStats.instagram_follower_count.toLocaleString()}
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', mt: 1, fontWeight: 600 }}>
+                Instagram Followers
+              </Typography>
+            </Box>
           </Grid>
         </Grid>
 
-        {/* Instagram Section */}
-        <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <InstagramIcon sx={{ color: '#E1306C' }} />
-              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+        {/* Instagram Section - Enhanced */}
+        <Box
+          sx={{
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(225, 48, 108, 0.2)',
+            borderRadius: 3,
+            p: 4,
+            mb: 4,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <InstagramIcon sx={{ color: '#E1306C', fontSize: 32 }} />
+              <Typography variant="h5" sx={{ fontWeight: 800, color: 'white' }}>
                 Instagram Connection
               </Typography>
             </Box>
             {!editingInstagram ? (
-              <IconButton size="small" onClick={() => setEditingInstagram(true)}>
-                <EditIcon />
-              </IconButton>
+              <Tooltip title="Edit Instagram">
+                <IconButton 
+                  size="medium" 
+                  onClick={() => setEditingInstagram(true)}
+                  sx={{
+                    color: '#E1306C',
+                    background: 'rgba(225, 48, 108, 0.1)',
+                    border: '1px solid rgba(225, 48, 108, 0.3)',
+                    '&:hover': {
+                      background: 'rgba(225, 48, 108, 0.2)',
+                    }
+                  }}
+                >
+                  <EditIcon />
+                </IconButton>
+              </Tooltip>
             ) : (
-              <Box>
-                <IconButton size="small" onClick={() => setEditingInstagram(false)}>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <IconButton 
+                  size="medium" 
+                  onClick={() => setEditingInstagram(false)}
+                  sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
+                >
                   <CancelIcon />
                 </IconButton>
-                <IconButton size="small" color="primary" onClick={handleSaveInstagram} disabled={loading}>
+                <IconButton 
+                  size="medium" 
+                  onClick={handleSaveInstagram} 
+                  disabled={loading}
+                  sx={{ color: '#00ff88' }}
+                >
                   <SaveIcon />
                 </IconButton>
               </Box>
@@ -329,7 +607,24 @@ const ProfilePage = () => {
                 value={instagramHandle}
                 onChange={(e) => setInstagramHandle(e.target.value)}
                 disabled={loading || syncingInstagram}
-                sx={{ mb: 2 }}
+                sx={{ 
+                  mb: 2,
+                  '& .MuiOutlinedInput-root': {
+                    color: 'white',
+                    '& fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.2)',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(225, 48, 108, 0.5)',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#E1306C',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: 'rgba(255, 255, 255, 0.6)',
+                  },
+                }}
               />
               <Button 
                 variant="contained" 
@@ -338,11 +633,19 @@ const ProfilePage = () => {
                 disabled={loading || syncingInstagram || !instagramHandle.trim()}
                 fullWidth
                 sx={{ 
+                  py: 1.5,
                   background: 'linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)',
                   color: 'white',
+                  fontWeight: 700,
+                  fontSize: '1rem',
                   '&:hover': {
-                    opacity: 0.9
-                  }
+                    opacity: 0.9,
+                    transform: 'translateY(-2px)',
+                  },
+                  '&:disabled': {
+                    opacity: 0.5
+                  },
+                  transition: 'all 0.2s'
                 }}
               >
                 {syncingInstagram ? 'Syncing Followers...' : 'Sync Instagram Followers'}
@@ -350,36 +653,59 @@ const ProfilePage = () => {
             </Box>
           ) : (
             <Box>
-              <Typography variant="body1" color={instagramHandle ? 'text.primary' : 'text.secondary'} sx={{ mb: 2 }}>
+              <Typography variant="h6" sx={{ color: instagramHandle ? '#00ff88' : 'rgba(255, 255, 255, 0.4)', mb: 2, fontWeight: 600 }}>
                 {instagramHandle || 'No Instagram connected'}
               </Typography>
               
               {followersList.length > 0 && (
                 <Box>
-                  <Typography variant="caption" color="text.secondary" gutterBottom>
+                  <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
                     Synced Followers ({followersList.length}):
                   </Typography>
                   <Box sx={{ 
-                    mt: 1, 
-                    p: 2, 
-                    bgcolor: 'grey.100', 
-                    borderRadius: 1,
-                    maxHeight: 150,
-                    overflow: 'auto'
+                    mt: 2, 
+                    p: 3, 
+                    background: 'rgba(0, 0, 0, 0.4)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: 2,
+                    maxHeight: 200,
+                    overflow: 'auto',
+                    '&::-webkit-scrollbar': {
+                      width: '8px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: 'rgba(0, 0, 0, 0.2)',
+                      borderRadius: '10px',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: 'rgba(225, 48, 108, 0.5)',
+                      borderRadius: '10px',
+                    },
                   }}>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {followersList.slice(0, 20).map((follower, index) => (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {followersList.slice(0, 30).map((follower, index) => (
                         <Chip 
                           key={index}
                           label={`@${follower}`}
                           size="small"
-                          variant="outlined"
+                          sx={{
+                            background: 'rgba(225, 48, 108, 0.1)',
+                            color: '#E1306C',
+                            border: '1px solid rgba(225, 48, 108, 0.3)',
+                            fontWeight: 600
+                          }}
                         />
                       ))}
-                      {followersList.length > 20 && (
+                      {followersList.length > 30 && (
                         <Chip 
-                          label={`+${followersList.length - 20} more`}
+                          label={`+${followersList.length - 30} more`}
                           size="small"
+                          sx={{
+                            background: 'rgba(0, 255, 136, 0.1)',
+                            color: '#00ff88',
+                            border: '1px solid rgba(0, 255, 136, 0.3)',
+                            fontWeight: 700
+                          }}
                         />
                       )}
                     </Box>
@@ -388,27 +714,58 @@ const ProfilePage = () => {
               )}
             </Box>
           )}
-        </Paper>
+        </Box>
 
-        {/* Clubs Section */}
-        <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <GroupsIcon color="primary" />
-              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+        {/* Clubs Section - Enhanced */}
+        <Box
+          sx={{
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(0, 255, 136, 0.2)',
+            borderRadius: 3,
+            p: 4,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <GroupsIcon sx={{ color: '#00ff88', fontSize: 32 }} />
+              <Typography variant="h5" sx={{ fontWeight: 800, color: 'white' }}>
                 BC Clubs & Organizations
               </Typography>
             </Box>
             {!editingClubs ? (
-              <IconButton size="small" onClick={() => setEditingClubs(true)}>
-                <EditIcon />
-              </IconButton>
+              <Tooltip title="Edit Clubs">
+                <IconButton 
+                  size="medium" 
+                  onClick={() => setEditingClubs(true)}
+                  sx={{
+                    color: '#00ff88',
+                    background: 'rgba(0, 255, 136, 0.1)',
+                    border: '1px solid rgba(0, 255, 136, 0.3)',
+                    '&:hover': {
+                      background: 'rgba(0, 255, 136, 0.2)',
+                    }
+                  }}
+                >
+                  <EditIcon />
+                </IconButton>
+              </Tooltip>
             ) : (
-              <Box>
-                <IconButton size="small" onClick={() => setEditingClubs(false)}>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <IconButton 
+                  size="medium" 
+                  onClick={() => setEditingClubs(false)}
+                  sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
+                >
                   <CancelIcon />
                 </IconButton>
-                <IconButton size="small" color="primary" onClick={handleSaveClubs} disabled={loading}>
+                <IconButton 
+                  size="medium" 
+                  onClick={handleSaveClubs} 
+                  disabled={loading}
+                  sx={{ color: '#00ff88' }}
+                >
                   <SaveIcon />
                 </IconButton>
               </Box>
@@ -416,40 +773,83 @@ const ProfilePage = () => {
           </Box>
 
           {editingClubs && (
-            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+            <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
               <TextField
                 fullWidth
-                size="small"
+                size="medium"
                 label="Add Club"
                 placeholder="e.g., UGBC, Finance Club, Ski Team"
                 value={newClub}
                 onChange={(e) => setNewClub(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleAddClub()}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'white',
+                    '& fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.2)',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(0, 255, 136, 0.5)',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#00ff88',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: 'rgba(255, 255, 255, 0.6)',
+                  },
+                }}
               />
-              <Button variant="contained" onClick={handleAddClub}>
+              <Button 
+                variant="contained" 
+                onClick={handleAddClub}
+                sx={{
+                  px: 4,
+                  background: 'linear-gradient(135deg, #00ff88 0%, #00d4aa 100%)',
+                  color: '#000',
+                  fontWeight: 800,
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, #00d4aa 0%, #00ff88 100%)',
+                    transform: 'translateY(-2px)',
+                  }
+                }}
+              >
                 Add
               </Button>
             </Box>
           )}
 
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
             {clubs.length > 0 ? (
               clubs.map((club, index) => (
                 <Chip
                   key={index}
                   label={club}
                   onDelete={editingClubs ? () => handleRemoveClub(club) : undefined}
-                  color="primary"
-                  variant="outlined"
+                  sx={{
+                    background: 'rgba(0, 255, 136, 0.15)',
+                    color: '#00ff88',
+                    border: '1px solid rgba(0, 255, 136, 0.3)',
+                    fontWeight: 700,
+                    fontSize: '0.9rem',
+                    px: 1,
+                    py: 2.5,
+                    '& .MuiChip-deleteIcon': {
+                      color: '#ff6b9d',
+                      '&:hover': {
+                        color: '#ff3366'
+                      }
+                    }
+                  }}
                 />
               ))
             ) : (
-              <Typography variant="body2" color="text.secondary">
-                No clubs added yet
+              <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.4)', py: 2 }}>
+                No clubs added yet. Add your BC clubs and organizations!
               </Typography>
             )}
           </Box>
-        </Paper>
+        </Box>
       </Container>
     </Box>
   );

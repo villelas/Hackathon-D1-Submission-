@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
 import random
@@ -11,12 +11,17 @@ from typing import List, Optional
 from enum import Enum
 import os
 from openai import OpenAI
+from typing import Dict
 from dotenv import load_dotenv
 import requests
 import time
 from PIL import Image, ImageDraw, ImageFont
 import io
 import base64
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+import pickle
 
 # Load environment variables from .env file
 load_dotenv()
@@ -94,19 +99,18 @@ Date: {formatted_date}
 Hosted by: {organizer}
 Vibe: {emoji_vibe}
 
-Style: Instagram story format (vertical/portrait), modern design, bold typography, energetic party vibe.
+Style: Instagram story format , modern design, bold typography, energetic party vibe.
 
 Design Elements:
 - Large bold title "{function_name}"
 - "YOU'RE INVITED" text prominently displayed
-- Purple and blue gradient background
+- Neon green and black gradient background
 - Event details clearly visible (location, date, host)
 - "BCPlugHub" branding at bottom
 - Modern Gen Z aesthetic with vibrant colors
 - Trendy, Instagram-ready, shareable design
 - Party/event atmosphere matching the vibe emojis
-
-Make it exciting, colorful, and attention-grabbing! Perfect for college students."""
+"""
         
         print(f"📝 Generating with DALL-E...")
         print(f"Prompt: {prompt[:150]}...")
@@ -1772,6 +1776,817 @@ async def finalize_event_rating(event_id: str, event_data: dict, average_rating:
         
     except Exception as e:
         print(f"❌ Error finalizing rating: {e}")
+
+class Event(BaseModel):
+    id: str
+    function_name: str
+    location: str
+    date: str
+    organizer_alias: str
+    rsvp_count: int
+    max_capacity: int
+    club_affiliated: bool
+    club_name: Optional[str]
+    emoji_vibe: Optional[List[str]]
+    invitation_image: Optional[str]
+
+
+
+class EventInsightsRequest(BaseModel):
+    events: List[Event]
+
+
+class SuccessPrediction(BaseModel):
+    eventId: str
+    eventName: str
+    score: int  # 0-100
+    reason: str
+    factors: Dict[str, float]
+
+
+class EventInsightsResponse(BaseModel):
+    successPredictions: List[SuccessPrediction]
+    recommendation: str
+
+
+def calculate_time_score(event_date: str) -> float:
+    """
+    Score based on timing (weekends, evenings = higher scores)
+    """
+    try:
+        dt = datetime.fromisoformat(event_date.replace('Z', '+00:00'))
+        
+        # Weekend bonus
+        is_weekend = dt.weekday() >= 5  # Saturday=5, Sunday=6
+        weekend_score = 0.25 if is_weekend else 0.0
+        
+        # Evening bonus (7pm-11pm is prime time)
+        hour = dt.hour
+        if 19 <= hour <= 23:
+            time_score = 0.3
+        elif 17 <= hour < 19:
+            time_score = 0.2
+        elif 12 <= hour < 17:
+            time_score = 0.1
+        else:
+            time_score = 0.0
+        
+        return min(1.0, weekend_score + time_score)
+    except:
+        return 0.5  # Default if date parsing fails
+
+
+def calculate_location_score(location: str) -> float:
+    """
+    Score based on location popularity and accessibility
+    Popular dorms and central locations score higher
+    """
+    popular_locations = {
+        'gabelli hall': 0.9,
+        'stayer hall': 0.85,
+        '90 st. thomas more': 0.8,
+        'walsh hall': 0.85,
+        'ignacio hall': 0.75,
+        'the mods': 0.7,
+        'rubenstein hall': 0.75,
+        'voute hall': 0.7,
+        'welch hall': 0.65,
+        'roncalli hall': 0.65,
+    }
+    
+    location_lower = location.lower()
+    for key, score in popular_locations.items():
+        if key in location_lower:
+            return score
+    
+    return 0.5  # Default for unknown locations
+
+
+def calculate_capacity_utilization_score(rsvp_count: int, max_capacity: int) -> float:
+    """
+    Optimal utilization is 60-80% (not too empty, not too crowded)
+    """
+    if max_capacity == 0:
+        return 0.5
+    
+    utilization = rsvp_count / max_capacity
+    
+    if 0.6 <= utilization <= 0.8:
+        return 1.0  # Perfect utilization
+    elif 0.4 <= utilization < 0.6:
+        return 0.8
+    elif 0.3 <= utilization < 0.4:
+        return 0.6
+    elif 0.8 < utilization <= 0.95:
+        return 0.7  # A bit crowded but still good
+    elif utilization > 0.95:
+        return 0.5  # Too crowded, might turn people away
+    else:
+        return 0.3  # Too empty, might seem unpopular
+
+
+def calculate_club_affiliation_score(club_affiliated: bool, club_name: Optional[str]) -> float:
+    """
+    Club-affiliated events often have better organization and turnout
+    """
+    if not club_affiliated:
+        return 0.5
+    
+    # Known popular clubs (you'd populate this with actual data)
+    popular_clubs = {
+        'student government': 0.9,
+        'asian caucus': 0.85,
+        'acapella': 0.85,
+        'comedy club': 0.8,
+    }
+    
+    if club_name:
+        club_lower = club_name.lower()
+        for key, score in popular_clubs.items():
+            if key in club_lower:
+                return score
+    
+    return 0.7  # Default for club events
+
+
+def calculate_vibe_score(emoji_vibe: Optional[List[str]]) -> float:
+    """
+    Events with clear vibes/themes tend to attract their target audience better
+    """
+    if not emoji_vibe or len(emoji_vibe) == 0:
+        return 0.5
+    
+    # More emojis = clearer theme
+    if len(emoji_vibe) >= 3:
+        return 0.8
+    elif len(emoji_vibe) >= 2:
+        return 0.7
+    else:
+        return 0.6
+
+
+async def get_ai_insights(events: List[Event]) -> str:
+    """
+    Use OpenAI to generate natural language insights about the event lineup
+    """
+    try:
+        event_summary = "\n".join([
+            f"- {e.function_name} at {e.location} on {e.date} ({e.rsvp_count}/{e.max_capacity} RSVPs)"
+            for e in events[:5]  # Only send top 5 to keep prompt concise
+        ])
+        
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",  # or "gpt-4o-mini" for faster/cheaper
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that analyzes campus events and provides brief, friendly insights to college students."
+                },
+                {
+                    "role": "user",
+                    "content": f"""Analyze these upcoming BC campus events and provide a brief, friendly insight about the overall event landscape. Be encouraging and highlight interesting patterns or standout events.
+
+Events:
+{event_summary}
+
+Respond in 1-2 sentences with actionable insights for students."""
+                }
+            ],
+            max_tokens=150,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"OpenAI API error: {e}")
+        return "Check out the events happening around campus in the next 24 hours!"
+
+
+def predict_event_success(event: Event) -> SuccessPrediction:
+    """
+    Main prediction function that combines all factors
+    """
+    # Calculate individual factor scores
+    time_score = calculate_time_score(event.date)
+    location_score = calculate_location_score(event.location)
+    capacity_score = calculate_capacity_utilization_score(event.rsvp_count, event.max_capacity)
+    club_score = calculate_club_affiliation_score(event.club_affiliated, event.club_name)
+    vibe_score = calculate_vibe_score(event.emoji_vibe)
+    
+    # Weights for each factor (adjust based on historical data)
+    weights = {
+        'timing': 0.25,
+        'location': 0.20,
+        'current_interest': 0.30,  # RSVP momentum
+        'organization': 0.15,  # Club affiliation
+        'presentation': 0.10,  # Vibe/theme clarity
+    }
+    
+    # Calculate weighted score
+    weighted_score = (
+        time_score * weights['timing'] +
+        location_score * weights['location'] +
+        capacity_score * weights['current_interest'] +
+        club_score * weights['organization'] +
+        vibe_score * weights['presentation']
+    )
+    
+    # Convert to 0-100 scale
+    success_score = int(weighted_score * 100)
+    
+    # Generate reason based on top factors
+    factors = {
+        'timing': time_score,
+        'location': location_score,
+        'current_interest': capacity_score,
+        'organization': club_score,
+        'presentation': vibe_score,
+    }
+    
+    # Find strongest and weakest factors
+    sorted_factors = sorted(factors.items(), key=lambda x: x[1], reverse=True)
+    top_factor = sorted_factors[0]
+    weak_factor = sorted_factors[-1]
+    
+    # Generate human-readable reason
+    if success_score >= 80:
+        reason = f"Strong {top_factor[0].replace('_', ' ')} and good overall setup"
+    elif success_score >= 60:
+        reason = f"Good {top_factor[0].replace('_', ' ')}, but {weak_factor[0].replace('_', ' ')} could be improved"
+    else:
+        reason = f"Consider improving {weak_factor[0].replace('_', ' ')} and {sorted_factors[-2][0].replace('_', ' ')}"
+    
+    return SuccessPrediction(
+        eventId=event.id,
+        eventName=event.function_name,
+        score=success_score,
+        reason=reason,
+        factors=factors
+    )
+
+
+# ==================== ML MODEL FOR GOATED PREDICTION ====================
+
+# In-memory model storage (in production, use file storage or database)
+trained_model = None
+model_scaler = None
+
+def generate_historical_event_data(num_events=500):
+    """
+    Generate synthetic historical event data for training
+    Based on BC campus event patterns
+    """
+    locations = [
+        'Gabelli Hall', 'Stayer Hall', 'Ignacio Hall', 'Rubenstein Hall', 
+        'Voute Hall', 'The Mods', 'Thomas More Apartments', 'Walsh Hall',
+        'Claver Hall', 'Xavier Hall', 'Loyola Hall', 'Fenwick Hall',
+        'Cheverus Hall', 'Kostka Hall', 'Welch Hall', 'Roncalli Hall', '90 St. Thomas More'
+    ]
+    # Better locations: the mods, ignacio, rubi, then gabelli hall, 
+    # stayer hall, then 90 st. thomas more, walsh hall,
+    # then roncalli hall, kostka hall, welch hall, cheverus hall, xavier hall, loyola hall, fenwick hall, claver hall
+
+    
+    clubs = [
+        'BC Bop', 'Sexual Chocolate', 'FISTS', 'Fuego',
+        'BCCSS', 'ASO', 'Chess Club', 'VIP',
+        'Investment Club', 'Theater Club', 'Heights Men', 'Model United Nations'
+    ]
+    # Better club functions: sexual chocolate, fists, fuego, vip, 
+    # aso, bccss, chess club, investment club, 
+    # theater club, heights men, model united nations
+    
+    emoji_sets = [
+        ['🎉', '🔥', '🎵'], ['💃', '🕺', '🎶'], ['🍻', '🎊', '🎈'],
+        ['🎮', '🏆', '🎯'], ['🍕', '🎂', '🍰'], ['🎨', '🖼️', '✨'],
+        ['🎬', '🎭', '🌟'], ['⚽', '🏀', '🏈'], ['📚', '✏️', '💡'],
+        ['🌮', '🍔', '🍟']
+    ]
+    # Fire party music beer emojis preferred
+    historical_events = []
+    now = datetime.now()
+    
+    for i in range(num_events):
+        # Random date in the past (last 6 months)
+        days_ago = random.randint(1, 180)
+        event_date = now - timedelta(days=days_ago)
+        
+        # Simulate different times
+        event_date = event_date.replace(
+            hour=random.choice([18, 19, 20, 21, 22]),
+            minute=random.randint(0, 59)
+        )
+        
+        # Some events on weekends (more popular)
+        if random.random() < 0.4:
+            days_to_weekend = 5 - event_date.weekday()
+            event_date += timedelta(days=days_to_weekend)
+            event_date = event_date.replace(hour=20)  # Weekend evening
+        
+        # Determine if club affiliated
+        club_affiliated = random.random() < 0.6
+        
+        # Generate realistic RSVP count based on factors
+        max_capacity = random.choice([20, 30, 40, 50, 75, 100])
+        
+        # Success factors:
+        # - Weekend events get more RSVPs
+        # - Evening events (7-11pm) get more
+        # - Club events get more
+        # - Smaller venues can hit capacity more easily
+        
+        base_rsvp = random.randint(5, 30)
+        if event_date.weekday() >= 5:  # Weekend
+            base_rsvp += random.randint(10, 25)
+        if 19 <= event_date.hour <= 22:  # Evening
+            base_rsvp += random.randint(5, 20)
+        if club_affiliated:
+            base_rsvp += random.randint(5, 15)
+        
+        # Popular locations get more RSVPs
+        if random.random() < 0.3:  # 30% chance of high attendance
+            base_rsvp = min(max_capacity, base_rsvp + random.randint(20, 40))
+        
+        rsvp_count = min(max_capacity, max(0, base_rsvp + random.randint(-10, 10)))
+        
+        historical_events.append({
+            'id': f'hist_{i}',
+            'function_name': f'{"Club" if club_affiliated else ""} Event {i+1}',
+            'location': random.choice(locations),
+            'date': event_date.isoformat(),
+            'organizer_alias': random.choice(clubs) if club_affiliated else f'Student_{random.randint(1, 1000)}',
+            'rsvp_count': rsvp_count,
+            'max_capacity': max_capacity,
+            'club_affiliated': club_affiliated,
+            'club_name': random.choice(clubs) if club_affiliated else None,
+            'emoji_vibe': random.choice(emoji_sets),
+            'invitation_image': None if random.random() < 0.5 else f'https://example.com/image_{i}.jpg'
+        })
+    
+    return historical_events
+
+
+def extract_features(event):
+    """
+    Extract ML features from an event for model training/prediction
+    """
+    try:
+        dt = datetime.fromisoformat(event.get('date', event.get('date')).replace('Z', '+00:00'))
+    except:
+        dt = datetime.now()
+    
+    features = np.array([
+        # Time features
+        dt.weekday(),  # 0=Monday, 6=Sunday
+        dt.hour,  # Hour of day
+        1.0 if dt.weekday() >= 5 else 0.0,  # Is weekend
+        1.0 if 19 <= dt.hour <= 23 else 0.0,  # Is evening (7-11pm)
+        
+        # Location features (one-hot encoded for popular locations)
+        1.0 if 'Gabelli' in event.get('location', '') else 0.0,
+        1.0 if 'Stayer' in event.get('location', '') else 0.0,
+        1.0 if 'Ignacio' in event.get('location', '') else 0.0,
+        1.0 if 'Mods' in event.get('location', '') else 0.0,
+
+        # TODO: use is_holiday increase if halloween, marathon monday, st patricks day 
+        
+        # Organization features
+        1.0 if event.get('club_affiliated', False) else 0.0,
+        len(event.get('emoji_vibe', [])) if event.get('emoji_vibe') else 0.0,  # Engagement vibe
+        
+        # Capacity features
+        event.get('max_capacity', 50),
+        (event.get('max_capacity', 50) - event.get('rsvp_count', 0)) / max(event.get('max_capacity', 50), 1),  # Capacity remaining ratio
+        
+        # Historical RSVP if available (for training data)
+        event.get('rsvp_count', 0) if 'rsvp_count' in event else 0.0,
+    ])
+    
+    return features
+
+
+def train_goated_model():
+    """
+    Train the ML model on historical event data
+    """
+    global trained_model, model_scaler
+    
+    print("🎓 Training Goated Event Prediction Model...")
+    
+    # Generate historical training data
+    historical_events = generate_historical_event_data(num_events=500)
+    
+    # Extract features and labels
+    X = np.array([extract_features(event) for event in historical_events])
+    # Use rsvp_count as the target (how successful the event was)
+    y = np.array([event.get('rsvp_count', 0) for event in historical_events])
+    
+    # Normalize features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # Train Random Forest model
+    model = RandomForestRegressor(
+        n_estimators=100,
+        max_depth=10,
+        random_state=42,
+        n_jobs=-1
+    )
+    model.fit(X_scaled, y)
+    
+    trained_model = model
+    model_scaler = scaler
+    
+    print(f"✅ Model trained on {len(historical_events)} historical events")
+    return model, scaler
+
+
+def predict_event_goated_score(event):
+    """
+    Predict how "goated" (successful) an event will be
+    Returns a score 0-100
+    """
+    global trained_model, model_scaler
+    
+    # Train model if not already trained
+    if trained_model is None or model_scaler is None:
+        train_goated_model()
+    
+    # Extract features
+    features = extract_features(event)
+    features_scaled = model_scaler.transform(features.reshape(1, -1))
+    
+    # Predict
+    predicted_rsvps = trained_model.predict(features_scaled)[0]
+    max_capacity = event.get('max_capacity', 50)
+    
+    # Convert predicted RSVPs to a 0-100 score
+    # Based on how close to capacity it will get
+    score = min(100, (predicted_rsvps / max(max_capacity, 1)) * 100)
+    
+    return {
+        'predicted_rsvps': int(predicted_rsvps),
+        'goated_score': int(score),
+        'max_capacity': max_capacity
+    }
+
+
+@app.get("/api/goated-prediction")
+async def get_goated_prediction():
+    """
+    Get the most "goated" (best predicted) event in the next 10 days
+    Runs ML model to find the event most likely to be successful
+    """
+    try:
+        # Fetch upcoming events
+        events_ref = db.collection('events')
+        events = events_ref.where('public_or_private', '==', 'public').where('status', '==', 'upcoming').stream()
+        
+        all_events = []
+        for event_doc in events:
+            event = event_doc.to_dict()
+            all_events.append(event)
+        
+        if not all_events:
+            return {
+                'goated_event': None,
+                'message': 'No upcoming events to predict'
+            }
+        
+        # Filter to next 10 days
+        now = datetime.now()
+        ten_days_from_now = now + timedelta(days=10)
+        
+        upcoming_events = []
+        for event in all_events:
+            try:
+                event_date = datetime.fromisoformat(event.get('date', '').replace('Z', '+00:00'))
+                event_date = event_date.replace(tzinfo=None)
+                
+                if now <= event_date <= ten_days_from_now:
+                    upcoming_events.append(event)
+            except:
+                continue
+        
+        if not upcoming_events:
+            return {
+                'goated_event': None,
+                'message': 'No events in the next 10 days'
+            }
+        
+        # Predict goated scores for each event
+        predictions = []
+        for event in upcoming_events:
+            try:
+                prediction = predict_event_goated_score(event)
+                predictions.append({
+                    'event': event,
+                    'prediction': prediction
+                })
+            except Exception as e:
+                print(f"Error predicting for event: {e}")
+                continue
+        
+        if not predictions:
+            return {
+                'goated_event': None,
+                'message': 'Error generating predictions'
+            }
+        
+        # Find the most goated event
+        predictions.sort(key=lambda x: x['prediction']['goated_score'], reverse=True)
+        goated_event = predictions[0]
+        
+        # Format response
+        event = goated_event['event']
+        pred = goated_event['prediction']
+        
+        return {
+            'goated_event': {
+                'id': event.get('event_id', event.get('id')),
+                'function_name': event.get('function_name', 'Unknown Event'),
+                'location': event.get('location', 'TBD'),
+                'date': event.get('date', ''),
+                'organizer_alias': event.get('organizer_alias', 'Anonymous'),
+                'club_affiliated': event.get('club_affiliated', False),
+                'club_name': event.get('club_name', ''),
+                'max_capacity': event.get('max_capacity', 50),
+                'emoji_vibe': event.get('emoji_vibe', []),
+                'invitation_image': event.get('invitation_image'),
+            },
+            'prediction': {
+                'goated_score': pred['goated_score'],
+                'predicted_rsvps': pred['predicted_rsvps'],
+                'confidence': 'High' if pred['goated_score'] > 80 else 'Medium' if pred['goated_score'] > 60 else 'Low'
+            },
+            'total_events_analyzed': len(predictions),
+            'message': f"🏆 Most Goated Event: {pred['goated_score']}% predicted success"
+        }
+        
+    except Exception as e:
+        print(f"Error in goated prediction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ai/event-insights")
+async def get_event_insights(request: dict):
+    """
+    Analyze events and return success predictions + general insights
+    Used by the BCMap for the AI insights panel
+    """
+    try:
+        events = request.get('events', [])
+        
+        if not events:
+            return {
+                'successPredictions': [],
+                'recommendation': 'No events to analyze in the next 24 hours.'
+            }
+        
+        # Generate predictions for each event using ML model
+        predictions = []
+        for event in events:
+            try:
+                # Use your existing predict_event_goated_score function
+                prediction = predict_event_goated_score(event)
+                
+                predictions.append({
+                    'eventId': event.get('id', ''),
+                    'eventName': event.get('function_name', 'Unknown Event'),
+                    'score': prediction['goated_score'],
+                    'reason': get_prediction_reason(event, prediction),
+                    'factors': {
+                        'timing': get_timing_score(event),
+                        'location': get_location_score(event),
+                        'current_interest': prediction['goated_score'] / 100.0,
+                        'organization': 0.7 if event.get('club_affiliated') else 0.5,
+                        'presentation': len(event.get('emoji_vibe', [])) / 5.0,
+                    }
+                })
+            except Exception as e:
+                print(f"Error predicting for event {event.get('id')}: {e}")
+                continue
+        
+        # Sort by score
+        predictions.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Generate natural language recommendation using OpenAI
+        recommendation = await generate_insights_recommendation(events, predictions)
+        
+        return {
+            'successPredictions': predictions,
+            'recommendation': recommendation
+        }
+        
+    except Exception as e:
+        print(f"Error in event insights: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+@app.get("/api/events")
+async def get_events():
+    """
+    Get all upcoming public events from Firebase Firestore
+    Used by BCMap to display events on the map
+    """
+    try:
+        # Query Firestore for public upcoming events
+        events_ref = db.collection('functions')
+        query = events_ref.where('public_or_private', '==', 'public').where('status', '==', 'upcoming')
+        
+        # Get all matching documents
+        events_stream = query.stream()
+        
+        events_list = []
+        for event_doc in events_stream:
+            event_data = event_doc.to_dict()
+            
+            # Format for frontend (map expects specific field names)
+            formatted_event = {
+                'id': event_doc.id,  # Document ID
+                'function_name': event_data.get('function_name', 'Unnamed Event'),
+                'location': event_data.get('location', 'TBD'),
+                'date': event_data.get('date', ''),
+                'organizer_alias': event_data.get('organizer_alias', 'Anonymous'),
+                'rsvp_count': event_data.get('rsvp_count', 0),
+                'max_capacity': event_data.get('max_capacity', 50),
+                'club_affiliated': event_data.get('club_affiliated', False),
+                'club_name': event_data.get('club_name', ''),
+                'emoji_vibe': event_data.get('emoji_vibe', []),
+                'invitation_image': event_data.get('invitation_image', None),
+            }
+            
+            events_list.append(formatted_event)
+        
+        print(f"📊 Retrieved {len(events_list)} public upcoming events")
+        
+        return {
+            'events': events_list,
+            'count': len(events_list)
+        }
+        
+    except Exception as e:
+        print(f"❌ Error fetching events: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error fetching events: {str(e)}")
+
+
+# Helper functions for AI insights
+def get_prediction_reason(event, prediction):
+    """Generate human-readable reason for the prediction score"""
+    score = prediction['goated_score']
+    
+    # Analyze factors
+    timing = get_timing_score(event)
+    location = get_location_score(event)
+    is_club = event.get('club_affiliated', False)
+    
+    if score >= 80:
+        if timing > 0.8 and location > 0.8:
+            return "Perfect timing and prime location"
+        elif timing > 0.8:
+            return "Excellent timing, great weekend slot"
+        elif location > 0.8:
+            return "Prime location with strong appeal"
+        else:
+            return "Strong overall event setup"
+    elif score >= 60:
+        weak_factors = []
+        if timing < 0.5:
+            weak_factors.append("timing")
+        if location < 0.6:
+            weak_factors.append("location")
+        if not is_club:
+            weak_factors.append("organization")
+        
+        if weak_factors:
+            return f"Good potential, consider improving {' and '.join(weak_factors[:2])}"
+        else:
+            return "Solid event with good attendance potential"
+    else:
+        return "Consider optimizing timing, location, or promotion"
+
+
+def get_timing_score(event):
+    """Calculate timing score for an event"""
+    try:
+        dt = datetime.fromisoformat(str(event.get('date', '')).replace('Z', '+00:00'))
+        
+        score = 0.5  # Base score
+        
+        # Weekend bonus
+        if dt.weekday() >= 5:
+            score += 0.3
+        
+        # Evening bonus (7-11pm)
+        if 19 <= dt.hour <= 23:
+            score += 0.2
+        
+        return min(1.0, score)
+    except:
+        return 0.5
+
+
+def get_location_score(event):
+    """Calculate location score based on BC preferences"""
+    location = event.get('location', '').lower()
+    
+    # Your ranked locations
+    if any(loc in location for loc in ['mods', 'ignacio', 'rubenstein']):
+        return 1.0
+    elif any(loc in location for loc in ['gabelli', 'stayer', '90 st']):
+        return 0.85
+    elif any(loc in location for loc in ['walsh', 'roncalli', 'kostka']):
+        return 0.7
+    else:
+        return 0.5
+
+
+async def generate_insights_recommendation(events, predictions):
+    """Generate natural language recommendation using OpenAI"""
+    try:
+        # Prepare summary of events
+        event_summary = []
+        for i, event in enumerate(events[:5]):  # Top 5 events
+            pred_score = predictions[i]['score'] if i < len(predictions) else 0
+            event_summary.append(
+                f"- {event.get('function_name')} at {event.get('location')} "
+                f"({pred_score}% predicted success)"
+            )
+        
+        summary_text = "\n".join(event_summary)
+        
+        # Call OpenAI
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",  # Cheaper and faster for short responses
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant analyzing BC campus events. Provide brief, friendly insights in 1-2 sentences."
+                },
+                {
+                    "role": "user",
+                    "content": f"""Analyze these BC campus events happening in the next 24 hours and provide a brief, encouraging insight:
+
+{summary_text}
+
+Respond in 1-2 sentences with actionable insights for students."""
+                }
+            ],
+            max_tokens=100,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Error generating AI recommendation: {e}")
+        # Fallback recommendation
+        if predictions:
+            top_event = predictions[0]['eventName']
+            return f"Check out {top_event} - it's predicted to be the hottest event in the next 24 hours! 🔥"
+        else:
+            return "Great events happening around campus - check them out on the map!"
+
+
+# Debug endpoint
+@app.get("/api/debug/events-count")
+async def debug_events_count():
+    """
+    Debug endpoint to check how many events are in the database
+    """
+    try:
+        # Count all events
+        all_events = db.collection('functions').stream()
+        total_count = sum(1 for _ in all_events)
+        
+        # Count public events
+        public_events = db.collection('functions').where('public_or_private', '==', 'public').stream()
+        public_count = sum(1 for _ in public_events)
+        
+        # Count upcoming events
+        upcoming_events = db.collection('functions').where('status', '==', 'upcoming').stream()
+        upcoming_count = sum(1 for _ in upcoming_events)
+        
+        # Count public upcoming events
+        public_upcoming = db.collection('functions').where('public_or_private', '==', 'public').where('status', '==', 'upcoming').stream()
+        public_upcoming_count = sum(1 for _ in public_upcoming)
+        
+        return {
+            'total_events': total_count,
+            'public_events': public_count,
+            'upcoming_events': upcoming_count,
+            'public_upcoming_events': public_upcoming_count,
+            'message': f'Found {public_upcoming_count} events that will show on the map'
+        }
+        
+    except Exception as e:
+        print(f"Error in debug endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Run with: uvicorn main:app --reload

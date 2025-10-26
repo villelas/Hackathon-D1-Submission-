@@ -14,6 +14,7 @@ import MyFunctions from './pages/MyFunctions';
 import ProfilePage from './pages/ProfilePage';
 import BCMap from './pages/BCMap';
 import NotificationsPage from './pages/NotificationsPage';
+import GoatedPrediction from './pages/GoatedPrediction';
 import { useAuth } from './contexts/AuthContext';
 
 // Protected Route component
@@ -122,10 +123,9 @@ function AppRoutes() {
         path="/predicted" 
         element={
           <ProtectedRoute>
-            <div>Goated Predicted Page - Coming Soon</div>
+            <GoatedPrediction />
           </ProtectedRoute>
-        } 
-   
+        }
       />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
