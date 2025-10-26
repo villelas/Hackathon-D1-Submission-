@@ -1,103 +1,145 @@
 import React from 'react';
-import { ThemeProvider, CssBaseline, Box, Typography, Button } from '@mui/material';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { ThemeProvider, CssBaseline } from '@mui/material';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { theme } from './styles/theme';
+import { AuthProvider } from './contexts/AuthContext';
 import MainLayout from './components/layout/MainLayout';
-import LoginForm from './components/auth/LoginForm';
 import Dashboard from './pages/Dashboard';
+import HomePage from './pages/HomePage';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import AliasGenerationPage from './pages/AliasGenerationPage';
+import CreateEventPage from './pages/CreateEventPage';
+import MyFunctions from './pages/MyFunctions';
+import ProfilePage from './pages/ProfilePage';
+import BCMap from './pages/BCMap';
+import NotificationsPage from './pages/NotificationsPage';
 import { useAuth } from './contexts/AuthContext';
-import GlassCard from './components/ui/GlassCard';
-import { neonText } from './styles/theme';
 
 // Protected Route component
 const ProtectedRoute = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return <div>Loading...</div>; // Or a spinner component
+  }
+  
   return user ? children : <Navigate to="/login" />;
 };
 
 // Public Route component
 const PublicRoute = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return <div>Loading...</div>; // Or a spinner component
+  }
+  
   return !user ? children : <Navigate to="/dashboard" />;
 };
 
-// Home component
-const Home = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-
+function AppRoutes() {
   return (
-    <MainLayout>
-      <Box sx={{ textAlign: 'center', mb: 6 }}>
-        <Typography variant="h1" gutterBottom>
-          Welcome to BCPlugHub
-        </Typography>
-        <Typography variant="h5" color="textSecondary" gutterBottom>
-          Your exclusive platform for BC function invites
-        </Typography>
-      </Box>
-
-      <Box sx={{ display: 'grid', gap: 4, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, maxWidth: '1200px', mx: 'auto' }}>
-        <GlassCard>
-          <Typography variant="h4" sx={{ mb: 2, ...neonText }}>Create Events</Typography>
-          <Typography sx={{ mb: 3 }}>
-            Manage your BC functions undercover with AI-generated aliases.
-          </Typography>
-          <Button 
-            variant="contained" 
-            color="primary"
-            onClick={() => navigate(user ? '/dashboard' : '/login')}
-          >
-            {user ? 'Go to Dashboard' : 'Get Started'}
-          </Button>
-        </GlassCard>
-
-        <GlassCard>
-          <Typography variant="h4" sx={{ mb: 2, ...neonText }}>Join Functions Tonight</Typography>
-          <Typography sx={{ mb: 3 }}>
-            Receive and accept invites with your unique BC alias. Keep your identity private. Let's share the BC community.
-          </Typography>
-          <Button 
-            variant="outlined" 
-            color="primary" 
-            sx={{ borderWidth: '2px' }}
-            onClick={() => navigate(user ? '/dashboard' : '/login')}
-          >
-            {user ? 'View Invites' : 'Login to Continue'}
-          </Button>
-        </GlassCard>
-      </Box>
-    </MainLayout>
+    <Routes>
+      <Route 
+        path="/" 
+        element={
+          <MainLayout>
+            <HomePage />
+          </MainLayout>
+        } 
+      />
+      <Route 
+        path="/login" 
+        element={
+          <PublicRoute>
+            <LoginPage />
+          </PublicRoute>
+        } 
+      />
+      <Route 
+        path="/register" 
+        element={
+          <PublicRoute>
+            <RegisterPage />
+          </PublicRoute>
+        } 
+      />
+      <Route 
+        path="/generate-alias" 
+        element={<AliasGenerationPage />}
+      />
+      <Route 
+        path="/dashboard" 
+        element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/notifications" 
+        element={
+          <ProtectedRoute>
+            <NotificationsPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/map" 
+        element={
+          <ProtectedRoute>
+            <BCMap />
+          </ProtectedRoute>
+        } 
+      />
+      
+      <Route 
+        path="/profile" 
+        element={
+          <ProtectedRoute>
+            <ProfilePage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/myfunctions" 
+        element={
+          <ProtectedRoute>
+            <MyFunctions />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/create-event" 
+        element={
+          <ProtectedRoute>
+            <CreateEventPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/predicted" 
+        element={
+          <ProtectedRoute>
+            <div>Goated Predicted Page - Coming Soon</div>
+          </ProtectedRoute>
+        } 
+   
+      />
+      <Route path="*" element={<Navigate to="/" />} />
+    </Routes>
   );
-};
+}
 
 function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route 
-          path="/login" 
-          element={
-            <PublicRoute>
-              <MainLayout>
-                <LoginForm />
-              </MainLayout>
-            </PublicRoute>
-          } 
-        />
-        <Route 
-          path="/dashboard" 
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          } 
-        />
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </ThemeProvider>
+    <AuthProvider>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <AppRoutes />
+      </ThemeProvider>
+    </AuthProvider>
   );
 }
 

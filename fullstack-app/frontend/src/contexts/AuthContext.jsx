@@ -1,14 +1,26 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import axios from 'axios';
 
-const AuthContext = createContext(null);
+const AuthContext = createContext();
+
+// Backend API URL
+const API_URL = 'http://127.0.0.1:8000/api';
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Check if user is logged in on mount
   useEffect(() => {
-    // Check for user in localStorage on initial load
-    const storedUser = localStorage.getItem('bcplug_user');
+    const storedUser = localStorage.getItem('user');
     if (storedUser) {
       setUser(JSON.parse(storedUser));
     }
@@ -16,35 +28,72 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
-    // For now, we'll just store the user in localStorage
-    // In a real app, you would validate credentials with a backend
-    if (email.endsWith('@bc.edu')) {
-      const userData = {
-        email,
-        username: email.split('@')[0],
-        isAuthenticated: true
-      };
-      localStorage.setItem('bcplug_user', JSON.stringify(userData));
+    try {
+      // Call your FastAPI login endpoint
+      const response = await axios.post(`${API_URL}/users/login`, null, {
+        params: {
+          bc_email: email,
+          password: password
+        }
+      });
+
+      const userData = response.data;
+      
+      // Store user data
       setUser(userData);
-      return { success: true };
+      localStorage.setItem('user', JSON.stringify(userData));
+
+      return { success: true, user: userData };
+    } catch (error) {
+      console.error('Login error:', error);
+      return { 
+        success: false, 
+        message: error.response?.data?.detail || 'Login failed. Please check your credentials.'
+      };
     }
-    return { success: false, message: 'Please use a BC email address' };
+  };
+
+  const register = async (email, password, name) => {
+    try {
+      // Call your FastAPI register endpoint (no alias yet)
+      const response = await axios.post(`${API_URL}/users/register`, {
+        bc_email: email,
+        password: password,
+        name: name
+      });
+
+      const userData = response.data;
+      
+      // DON'T auto-login yet - need to generate alias first
+      return { success: true, user: userData, needsAlias: true };
+    } catch (error) {
+      console.error('Registration error:', error);
+      return { 
+        success: false, 
+        message: error.response?.data?.detail || 'Registration failed. Please try again.'
+      };
+    }
   };
 
   const logout = () => {
-    localStorage.removeItem('bcplug_user');
     setUser(null);
+    localStorage.removeItem('user');
+  };
+
+  const value = {
+    user,
+    login,
+    register,
+    logout,
+    isAuthenticated: !!user,
+    loading
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
-      {!loading && children}
+    <AuthContext.Provider value={value}>
+      {children}
     </AuthContext.Provider>
   );
-};
-
-export const useAuth = () => {
-  return useContext(AuthContext);
 };
 
 export default AuthContext;

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, AppBar, Toolbar, Typography, Button, Container } from '@mui/material';
 import { styled } from '@mui/material/styles';
+import { useNavigate } from 'react-router-dom';
 import { glassMorphism, neonText } from '../../styles/theme';
 import { motion } from 'framer-motion';
 
@@ -43,6 +44,8 @@ const ContentContainer = styled(Container)({
 });
 
 export const MainLayout = ({ children }) => {
+  const navigate = useNavigate();
+  
   return (
     <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)' }}>
       <StyledAppBar position="static" color="transparent">
@@ -65,7 +68,11 @@ export const MainLayout = ({ children }) => {
           >
             BCPlugHub
           </MotionTypography>
-          <Button color="primary" variant="contained">
+          <Button 
+            color="primary" 
+            variant="contained"
+            onClick={() => navigate('/login')}
+          >
             Login with BC Email
           </Button>
         </Toolbar>
